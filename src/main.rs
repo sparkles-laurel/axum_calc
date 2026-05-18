@@ -1,7 +1,14 @@
 use axum::{Router, extract::Path, http::StatusCode, routing::get};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use pest::Parser;
+mod expr;
+mod binop_eval;
 
+
+use crate::expr::CalculatorParser;
+use crate::expr::Rule;
+use crate::binop_eval::eval;
 #[tokio::main]
 async fn main() {
     tracing_subscriber::registry()
@@ -20,6 +27,7 @@ async fn main() {
         .route("/div/{lhs}/{rhs}", get(route_div))
         .route("/sum/{*path}", get(route_sum_seq))
         .route("/prod/{*path}", get(route_prod_seq))
+        .route("/eval/{*expr}", get(route_eval_expr))
         .layer(TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -86,5 +94,18 @@ async fn route_prod_seq(Path(path): Path<String>) -> (StatusCode, String) {
             StatusCode::BAD_REQUEST,
             "Sequence contains numbers that were not parsed".to_owned(),
         ),
+    }
+}
+
+async fn route_eval_expr(Path(expr): Path<String>) -> (StatusCode, String) {
+    match CalculatorParser::parse(Rule::equation, &expr) {
+        Ok(mut pairs) => {
+            if let Some(f) = eval(expr::parse_expr(pairs.next().unwrap().into_inner())) {
+                (StatusCode::OK, f.to_string().to_owned())
+            } else {
+                (StatusCode::BAD_REQUEST, "division by zero".to_owned())
+            }
+        },
+        Err(e) => (StatusCode::BAD_REQUEST, format!("failed to parse: {}", e))
     }
 }
